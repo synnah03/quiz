@@ -1,9 +1,9 @@
 FROM php:8.2-apache
 
-# Install system dependencies + PHP extensions Laravel needs
+# Install system dependencies + PHP extensions Laravel needs (Postgres version)
 RUN apt-get update && apt-get install -y \
-    git unzip libzip-dev libpng-dev libonig-dev libxml2-dev \
-    && docker-php-ext-install pdo pdo_mysql zip gd mbstring xml
+    git unzip libzip-dev libpng-dev libonig-dev libxml2-dev libpq-dev \
+    && docker-php-ext-install pdo pdo_pgsql zip gd mbstring xml
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -12,6 +12,10 @@ WORKDIR /var/www/html
 COPY . .
 
 RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Install Node dependencies and build frontend assets (React + Inertia)
+RUN apt-get install -y nodejs npm
+RUN npm install && npm run build
 
 # Point Apache at Laravel's public/ folder
 RUN a2enmod rewrite
