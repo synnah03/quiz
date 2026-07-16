@@ -23,20 +23,20 @@ ENV APACHE_DOCUMENT_ROOT /var/www/html/public
 RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/*.conf
 RUN sed -ri -e 's!/var/www/!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/apache2.conf
 
+# Allow .htaccess overrides so Laravel's routing (login, register, etc.) works
+RUN sed -ri -e 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
+
 # Cloud Run expects the container to listen on port 8080
 RUN sed -i 's/80/8080/g' /etc/apache2/ports.conf /etc/apache2/sites-available/000-default.conf
 EXPOSE 8080
 
-# Laravel needs these folders writable
-RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
-
-CMD ["apache2-foreground"]
-
+# Laravel needs these folders to exist and be writable
 RUN mkdir -p storage/framework/sessions \
     && mkdir -p storage/framework/views \
     && mkdir -p storage/framework/cache \
     && mkdir -p storage/logs \
     && mkdir -p bootstrap/cache \
-    && chmod -R 775 storage bootstrap/cache
+    && chmod -R 775 storage bootstrap/cache \
+    && chown -R www-data:www-data storage bootstrap/cache
 
-RUN chown -R www-data:www-data storage bootstrap/cache
+CMD ["apache2-foreground"]
