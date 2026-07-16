@@ -1,4 +1,4 @@
-import { Head, usePage, useForm, router } from "@inertiajs/react";
+import { Head, usePage, router } from "@inertiajs/react";
 import { useRoute } from "ziggy-js";
 import { useState, useEffect, useMemo, useRef } from "react";
 import AuthenticatedLayout from "@/Layouts/AuthenticatedLayout";
@@ -14,6 +14,8 @@ export default function Take() {
   const [timeExpired, setTimeExpired] = useState(false);
   const [submitError, setSubmitError] = useState(false);
   const [showLeaveWarning, setShowLeaveWarning] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(
     quiz.duration_minutes ? quiz.duration_minutes * 60 : null
   );
@@ -21,11 +23,6 @@ export default function Take() {
   // Guards against submit() firing more than once (e.g. effect re-running,
   // or the user clicking "Submit quiz" at the same instant the timer expires).
   const hasSubmittedRef = useRef(false);
-
-  const { post, processing, setData } = useForm({
-    attempt_id: attemptId,
-    answers: [],
-  });
 
   const totalQuestions = quiz.questions.length;
   const currentQuestion = quiz.questions[currentIndex];
@@ -37,6 +34,7 @@ export default function Take() {
     if (hasSubmittedRef.current) return;
     hasSubmittedRef.current = true;
     setSubmitError(false);
+    setProcessing(true);
 
     const payload = Object.entries(currentAnswers).map(
       ([questionId, optionIds]) => ({
@@ -44,15 +42,24 @@ export default function Take() {
         option_ids: Array.isArray(optionIds) ? optionIds : [optionIds],
       })
     );
-    setData("answers", payload);
-    post(route("quiz.submit", quiz.id), {
-      data: { attempt_id: attemptId, answers: payload },
-      onError: () => {
-        // Let the student retry instead of being stuck on a frozen screen forever
-        hasSubmittedRef.current = false;
-        setSubmitError(true);
-      },
-    });
+
+    // Send the payload directly as router.post's data argument instead of
+    // going through useForm's setData + post — setData is an async state
+    // update, so a post() called right after it would still see the old
+    // (empty) form data. router.post() takes the data explicitly, so
+    // there's no timing gap and no chance of submitting stale/empty answers.
+    router.post(
+      route("quiz.submit", quiz.id),
+      { attempt_id: attemptId, answers: payload },
+      {
+        onError: () => {
+          // Let the student retry instead of being stuck on a frozen screen forever
+          hasSubmittedRef.current = false;
+          setSubmitError(true);
+          setProcessing(false);
+        },
+      }
+    );
   };
 
   // Countdown timer — runs across the whole quiz, not per-question.
@@ -107,8 +114,16 @@ export default function Take() {
       ? answers[currentQuestion.id] !== undefined
       : (answers[currentQuestion.id] || []).length > 0;
 
+  // Clicking "Submit quiz" only opens a confirmation dialog — it does NOT
+  // submit by itself. This keeps answering the last question and actually
+  // submitting the whole quiz as two clearly separate, deliberate actions.
   const handleSubmit = (e) => {
     e.preventDefault();
+    setShowSubmitConfirm(true);
+  };
+
+  const confirmSubmit = () => {
+    setShowSubmitConfirm(false);
     submit(answers);
   };
 
@@ -189,17 +204,19 @@ export default function Take() {
                   {answeredCount} answered
                 </p>
               </div>
-              {timeDisplay && (
-                <div
-                  className={`text-lg font-mono px-4 py-2 rounded-md ${
-                    secondsLeft < 60
-                      ? "bg-red-100 text-red-700"
-                      : "bg-white text-slate-900"
-                  }`}
-                >
-                  {timeDisplay}
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                {timeDisplay && (
+                  <div
+                    className={`text-lg font-mono px-4 py-2 rounded-md ${
+                      secondsLeft < 60
+                        ? "bg-red-100 text-red-700"
+                        : "bg-white text-slate-900"
+                    }`}
+                  >
+                    {timeDisplay}
+                  </div>
+                )}
+              </div>
             </div>
 
             {showLeaveWarning && !timeExpired && (
@@ -359,6 +376,40 @@ export default function Take() {
             )}
           </form>
         </div>
+
+        {/* Final submission confirmation — a deliberate, separate step from
+            answering the last question, so a click never doubles as both
+            "select an answer" and "submit the whole quiz". */}
+        {showSubmitConfirm && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+            <div className="bg-white rounded-md p-6 max-w-sm w-full space-y-4">
+              <h2 className="text-lg font-bold text-slate-900">
+                Submit quiz?
+              </h2>
+              <p className="text-sm text-slate-600">
+                You've answered {answeredCount} of {totalQuestions} questions.
+                Once submitted, you won't be able to change your answers.
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSubmitConfirm(false)}
+                  className="border rounded-md px-4 py-2 text-sm hover:border-slate-900"
+                >
+                  Go back
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmSubmit}
+                  disabled={processing}
+                  className="bg-slate-900 text-white rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"
+                >
+                  {processing ? "Submitting..." : "Yes, submit"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </AuthenticatedLayout>
     </div>
   );
